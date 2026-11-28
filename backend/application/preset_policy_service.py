@@ -33,7 +33,11 @@ from typing import Any
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
-from presets.exceptions import CrossTenantWorkspaceError
+from presets.exceptions import (
+    CrossTenantWorkspaceError,
+    PresetPolicyUnavailable,
+    UnknownFeatureKeyError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +160,59 @@ class PresetPolicyService:
                 feature_key,
             )
             return False
+
+    def is_feature_enabled_strict(
+        self, workspace_id: str, feature_key: str
+    ) -> bool:
+        """Return *feature_key*'s value, failing closed instead of open.
+
+        Spec §4.5 / D5 + plan slice S5.1. Same lookup path as
+        :meth:`is_feature_enabled` (including the 5-minute cache), but *no*
+        exception is swallowed: an unknown feature key, a missing/unreadable
+        workspace or preset raises :class:`PresetPolicyUnavailable` instead of
+        answering ``False``. The fail-open sibling above stays untouched —
+        rigor-tier gating wants "no tier, no feature", a gate that must block
+        a write wants "no answer ⇒ block".
+
+        ``CrossTenantWorkspaceError`` propagates unchanged: it is already a
+        fail-closed tenant guard (SA-15), not a lookup miss.
+
+        Args:
+            workspace_id: Workspace UUID (string or UUID).
+            feature_key: One of ``presets.registry.FEATURE_KEYS``.
+
+        Returns:
+            True if the workspace's active tier enables the feature.
+
+        Raises:
+            PresetPolicyUnavailable: If the key or the policy lookup cannot be
+                resolved.
+            CrossTenantWorkspaceError: If the workspace belongs to another
+                tenant (SA-15).
+        """
+        from presets.registry import FEATURE_KEYS
+
+        ws_key = str(workspace_id)
+        if feature_key not in FEATURE_KEYS:
+            raise PresetPolicyUnavailable(
+                workspace_id=ws_key,
+                feature_key=str(feature_key),
+                reason="unknown feature key",
+            ) from UnknownFeatureKeyError(
+                f"Unknown feature key '{feature_key}'. "
+                f"Valid keys: {sorted(FEATURE_KEYS)}"
+            )
+        try:
+            preset = self._get_preset(ws_key)
+            return bool(preset.features[feature_key])
+        except CrossTenantWorkspaceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — re-raised as a domain error
+            raise PresetPolicyUnavailable(
+                workspace_id=ws_key,
+                feature_key=feature_key,
+                reason=f"lookup failed: {type(exc).__name__}",
+            ) from exc
 
     # ---------- Public API (IF-AS-INT-006) ----------
 

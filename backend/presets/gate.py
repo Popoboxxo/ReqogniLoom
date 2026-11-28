@@ -30,6 +30,7 @@ from presets.exceptions import (
     ConfigurationError,
     CrossTenantWorkspaceError,
     DowngradeBlockedError,
+    PresetPolicyUnavailable,
     UnknownFeatureKeyError,
 )
 from presets.registry import (
@@ -305,6 +306,7 @@ class FeatureGateService:
     Exposes (IF-PC-EXT-IN-001/003):
         get_preset(workspace_id)
         is_feature_enabled(key, workspace_id)
+        is_feature_enabled_strict(key, workspace_id)
         switch_preset(workspace_id, target_tier)
         validate_downgrade(workspace_id, target_tier)
         get_terminology(workspace_id)
@@ -382,6 +384,61 @@ class FeatureGateService:
             )
         preset = self.get_preset(workspace_id)
         return preset.features.get(feature_key, False)
+
+    def is_feature_enabled_strict(
+        self, feature_key: str, workspace_id: str
+    ) -> bool:
+        """Strict variant of :meth:`is_feature_enabled` (spec §4.5 / D5, S5.1).
+
+        Same lookup path, but *nothing* is swallowed: an unregistered feature
+        key, an unknown workspace, an unreadable preset row or a missing key in
+        the resolved preset raises :class:`PresetPolicyUnavailable` instead of
+        answering ``False``. A caller whose job is to *block* a write cannot
+        treat "the policy lookup is down" as "the gate is off".
+
+        ``CrossTenantWorkspaceError`` (SA-15) propagates unchanged: it is
+        already a fail-closed tenant guard, not a lookup miss.
+
+        Args:
+            feature_key: One of the registered feature keys (FEATURE_KEYS).
+            workspace_id: UUID string of the workspace.
+
+        Returns:
+            The boolean feature value for a resolvable workspace.
+
+        Raises:
+            PresetPolicyUnavailable: If the key is unknown or the
+                workspace/preset/feature lookup cannot be resolved.
+            CrossTenantWorkspaceError: If the workspace belongs to another
+                tenant (SA-15).
+        """
+        ws_key = str(workspace_id)
+        if feature_key not in FEATURE_KEYS:
+            raise PresetPolicyUnavailable(
+                workspace_id=ws_key,
+                feature_key=str(feature_key),
+                reason="unknown feature key",
+            ) from UnknownFeatureKeyError(
+                f"Unknown feature key '{feature_key}'. "
+                f"Valid keys: {sorted(FEATURE_KEYS)}"
+            )
+        try:
+            preset = self.get_preset(ws_key)
+        except CrossTenantWorkspaceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — re-raised as a domain error
+            raise PresetPolicyUnavailable(
+                workspace_id=ws_key,
+                feature_key=feature_key,
+                reason=f"lookup failed: {type(exc).__name__}",
+            ) from exc
+        if feature_key not in preset.features:
+            raise PresetPolicyUnavailable(
+                workspace_id=ws_key,
+                feature_key=feature_key,
+                reason="feature missing from resolved preset",
+            )
+        return bool(preset.features[feature_key])
 
     def get_workflow_configurability(self, workspace_id: str) -> str:
         """Return the workflow configurability string for *workspace_id*.

@@ -53,6 +53,45 @@ class UnknownFeatureKeyError(PresetError):
     """
 
 
+class PresetPolicyUnavailable(PresetError):
+    """Raised by the *strict* preset seam when a policy cannot be resolved.
+
+    Spec §4.5 / D5 + plan slice S5.1. The fail-open siblings
+    (``PresetPolicyService.is_feature_enabled``,
+    ``presets.gate.FeatureGateService``'s tolerant callers) answer ``False``
+    when the workspace/preset/feature lookup fails, i.e. "the tier does not
+    have the feature". That is right for rigor-tier gating but wrong for a
+    gate whose job is to *block* a write: a read failure must not look like
+    "gate off".
+
+    The strict seam therefore raises this error instead, so the caller can
+    fail closed and map it to its own error code (for the structured-change
+    impact gate: ``CHANGE_IMPACT_POLICY_UNAVAILABLE``).
+
+    Attributes:
+        workspace_id: The workspace whose policy was requested.
+        feature_key: The feature key that was looked up (``None`` when the
+            failure happened before a key was known).
+        reason: Short human-readable cause, e.g. ``"workspace missing"``,
+            ``"unknown feature key"`` or ``"lookup failed: OperationalError"``.
+    """
+
+    def __init__(
+        self,
+        *,
+        workspace_id: str,
+        feature_key: str | None = None,
+        reason: str = "preset policy unavailable",
+    ) -> None:
+        self.workspace_id = workspace_id
+        self.feature_key = feature_key
+        self.reason = reason
+        target = f"feature '{feature_key}'" if feature_key else "preset policy"
+        super().__init__(
+            f"Cannot resolve {target} for workspace {workspace_id}: {reason}"
+        )
+
+
 class DowngradeBlockedError(PresetError):
     """Raised when a preset downgrade is blocked due to incompatible data.
 
@@ -112,6 +151,7 @@ __all__ = [
     "ImmutablePresetError",
     "IncompleteProfileError",
     "PresetError",
+    "PresetPolicyUnavailable",
     "ScopeNotAvailableError",
     "UnknownFeatureKeyError",
 ]

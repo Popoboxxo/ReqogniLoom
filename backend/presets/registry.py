@@ -47,6 +47,13 @@ TIER_ORDER: list[str] = [TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED]
 # Feature key registry — all valid keys (REQ-L2-PC-002)
 # ---------------------------------------------------------------------------
 
+#: Spec §4.5 / D5 + plan slice S5.1: the structured-change impact ("Wirkkette")
+#: gate. Extended is the only default tier that enables it; Minimal/Standard
+#: keep their lightweight change handling. The workflow consumer arrives with
+#: plan slices S5.2/S5.3 and reads the flag through
+#: :func:`presets.services.structured_change_impact_enabled_strict`.
+FEATURE_STRUCTURED_CHANGE_IMPACT = "structured_change_impact"
+
 FEATURE_KEYS: frozenset[str] = frozenset(
     {
         "baselines",
@@ -60,6 +67,7 @@ FEATURE_KEYS: frozenset[str] = frozenset(
         # ``workflow.precondition_rules``; OFF in Minimal/Standard so those
         # tiers keep their lightweight approval semantics.
         "require_verification_on_approval",
+        FEATURE_STRUCTURED_CHANGE_IMPACT,
     }
 )
 
@@ -207,6 +215,7 @@ _MINIMAL = PresetConfig(
         "custom_workflows": False,
         "change_reason_mandatory": False,
         "require_verification_on_approval": False,
+        FEATURE_STRUCTURED_CHANGE_IMPACT: False,
     },
     baseline_scopes=(),
     workflow_configurability="fixed",
@@ -231,6 +240,7 @@ _STANDARD = PresetConfig(
         "custom_workflows": False,
         "change_reason_mandatory": False,
         "require_verification_on_approval": False,
+        FEATURE_STRUCTURED_CHANGE_IMPACT: False,
     },
     baseline_scopes=("document", "project"),
     workflow_configurability="partial",
@@ -276,6 +286,9 @@ _EXTENDED = PresetConfig(
         # #1267: the Extended tier is the only one that demands verification
         # evidence before an artifact may be approved.
         "require_verification_on_approval": True,
+        # Spec §4.5 / D5: formal change control tracks the structured impact
+        # chain of a change; only the Extended tier carries that rigor.
+        FEATURE_STRUCTURED_CHANGE_IMPACT: True,
     },
     baseline_scopes=("document", "project", "global"),
     workflow_configurability="full",
@@ -502,6 +515,7 @@ def get_registry() -> PresetRegistry:
 __all__ = [
     "DEFAULT_TIERS",
     "FEATURE_KEYS",
+    "FEATURE_STRUCTURED_CHANGE_IMPACT",
     "TIER_EXTENDED",
     "TIER_MINIMAL",
     "TIER_ORDER",
