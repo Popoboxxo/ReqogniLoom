@@ -15,6 +15,27 @@ ReqogniLoom workspace through its native MCP server (`/mcp/sse/`, JSON-RPC 2.0).
 | `document-steward.md` | Project Loom documents to Markdown, adopt repo documents via branch + PR | `review_high_risk` (`document.adopt`, `document.update`) |
 | `reqogniloom-support.md` | Capture, classify and file ReqogniLoom defects as GitHub issues | `auto` (read-only) |
 
+### Tool whitelists are deliberate role subsets
+
+Each template's `tools:` list is a hand-picked subset of the full MCP catalogue
+(`tool-manifest.json`: 314 tools, 50 prefixes at `1.9.0-beta.9`), not a mirror
+of it. Two rules made the lists small on purpose:
+
+* **Least authority.** A role gets the verbs its work needs and nothing that
+  widens its blast radius — that is why no role carries API-key, permission or
+  tenant-administration tools.
+* **Task completeness.** A whitelist is expected to be complete for the role's
+  own workflow (create → review → link → verify), not for ReqogniLoom as a
+  whole.
+
+Consequently some groups are covered by no shipped role: `memory`, `work_item`,
+`milestone`, `user`, `workflow_default` and the `attribute_*` configuration
+groups. That is a scope decision (project-setup and agent-memory work is not one
+of the seven roles), not a missing whitelist entry. If your project needs one of
+those groups, extend the role file that owns the task and add the tool to its
+`tools:` list — `test_role_tools_exist_in_manifest.py` keeps the names honest.
+The management surfaces themselves stay reachable over REST.
+
 ## Installation
 
 1. Copy the role file(s) you need into your project's agent-definition directory (for an

@@ -91,9 +91,12 @@ export interface DocumentReadingViewProps {
   /**
    * Refetch the reading object. Called after a successful inline save (so the
    * head, chapters and freeze verdicts follow the write) and by a conflicted
-   * field's "reload" action.
+   * field's "reload" action. For the reload action the returned value decides
+   * whether the draft is dropped: resolving `false` (or throwing) keeps the
+   * local value and the conflict marker (#2080). Returning nothing counts as
+   * success so existing void handlers keep working.
    */
-  onReload?: () => void;
+  onReload?: () => Promise<boolean | void> | boolean | void;
 }
 
 export function DocumentReadingView({
@@ -114,7 +117,9 @@ export function DocumentReadingView({
   const [saveMode, setSaveMode] = useState<DocumentSaveMode>("immediate");
   const drafts = useDocumentDrafts(reading, {
     workspaceId,
-    onSaved: () => onReload?.(),
+    onSaved: () => {
+      void onReload?.();
+    },
   });
 
   const canWrite = reading.capabilities.can_write;
@@ -153,8 +158,10 @@ export function DocumentReadingView({
                   void drafts.saveField(name);
                 }}
                 onReload={(name) => {
-                  drafts.resetField(name);
-                  onReload?.();
+                  void drafts.reloadField(name, async () => {
+                    if (!onReload) return false;
+                    return (await onReload()) !== false;
+                  });
                 }}
               />
             ) : (

@@ -231,7 +231,7 @@ add a mutation signal, never remove an explicit one.
 `reset`, `drop`), not a `.delete` suffix: `memory.delete_workspace` and
 `attribute_definition.delete_workspace` are a GDPR wipe of every memory tier a
 workspace owns, and the suffix test let them through with a plain yes/no. Verified
-against all 248 manifest tools (12 matches, all hard deletes or resets).
+against every manifest tool (12 matches, all hard deletes or resets).
 
 ### What a server URL may be
 
