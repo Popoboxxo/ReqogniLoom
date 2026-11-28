@@ -112,6 +112,22 @@ EC_TEST_STEPS_MISSING = "TEST_STEPS_MISSING"
 #: Plan F F2-T4 / ADR-026 §4.2: one or more of the document release gates
 #: (G-1…G-4) failed. ``details`` names each violated gate.
 EC_DOCUMENT_GATE_FAILED = "DOCUMENT_GATE_FAILED"
+#: Design §4.5 (plan S5.3): the structured change-impact gate's refusal codes.
+#: The values are identical to the wire codes of the matching
+#: ``application.base.ChangeImpactGateError`` subclasses, exactly like
+#: ``EC_DOCUMENT_GATE_FAILED`` above — that identity is what lets
+#: ``application.workflow_facade._remap_workflow_exc`` map a validator verdict
+#: onto its dedicated exception type without a second string table.
+EC_CHANGE_IMPACT_MISSING = "CHANGE_IMPACT_MISSING"
+EC_CHANGE_IMPACT_STALE = "CHANGE_IMPACT_STALE"
+EC_CHANGE_IMPACT_OPEN_FINDINGS = "CHANGE_IMPACT_OPEN_FINDINGS"
+EC_CHANGE_IMPACT_INCOMPLETE = "CHANGE_IMPACT_INCOMPLETE"
+EC_CHANGE_IMPACT_RUNNING = "CHANGE_IMPACT_RUNNING"
+EC_CHANGE_IMPACT_TIMEOUT = "CHANGE_IMPACT_TIMEOUT"
+EC_CHANGE_IMPACT_POLICY_FORBIDDEN = "CHANGE_IMPACT_POLICY_FORBIDDEN"
+EC_CHANGE_IMPACT_POLICY_UNAVAILABLE = "CHANGE_IMPACT_POLICY_UNAVAILABLE"
+EC_CHANGE_SET_FROZEN = "CHANGE_SET_FROZEN"
+EC_CHANGE_IMPACT_RATE_LIMITED = "CHANGE_IMPACT_RATE_LIMITED"
 #: Plan F F3-T2 / spec §4: a WorkItem can only enter ``blocked`` with a
 #: non-empty ``blocked_reason``.
 EC_WORK_ITEM_BLOCKED_REASON_REQUIRED = "WORK_ITEM_BLOCKED_REASON_REQUIRED"
@@ -1234,6 +1250,16 @@ def policy_fields_without_consumer(
 
 
 __all__ = [
+    "EC_CHANGE_IMPACT_INCOMPLETE",
+    "EC_CHANGE_IMPACT_MISSING",
+    "EC_CHANGE_IMPACT_OPEN_FINDINGS",
+    "EC_CHANGE_IMPACT_POLICY_FORBIDDEN",
+    "EC_CHANGE_IMPACT_POLICY_UNAVAILABLE",
+    "EC_CHANGE_IMPACT_RATE_LIMITED",
+    "EC_CHANGE_IMPACT_RUNNING",
+    "EC_CHANGE_IMPACT_STALE",
+    "EC_CHANGE_IMPACT_TIMEOUT",
+    "EC_CHANGE_SET_FROZEN",
     "EC_DOCUMENT_GATE_FAILED",
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_REQUIREMENT_VERIFICATION_MISSING",

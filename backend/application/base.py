@@ -328,6 +328,157 @@ class AnchorsPresentError(ValidationError):
         self.details = {"count": count}
 
 
+class ChangeImpactGateError(ValidationError):
+    """Base for the structured change-impact gate refusals (design §4.5).
+
+    Every refusal the ``extended``-rigor change-impact gate can answer is a
+    ``ValidationError`` subclass — the established precedent of
+    :class:`DocumentGateFailedError` / :class:`BaselineGateBlockedError` — so
+    every existing ``except ValidationError`` caller keeps working, while both
+    transports can answer a *dedicated* code instead of one opaque sentence.
+
+    Each concrete subclass pins three things:
+
+    * ``error_code`` — the stable wire code (also the internal
+      ``EC_CHANGE_IMPACT_*`` marker in ``workflow.precondition_rules``),
+    * ``http_status`` — the REST status (409 for every gate refusal; 400 for
+      ``POLICY_FORBIDDEN``, 429 for ``RATE_LIMITED``),
+    * ``details`` — the machine-readable payload the spec's error table
+      publishes (``reason``, ``run_id``/``status``, ``finding_ids``/``count``,
+      ``key``).
+
+    Note for the REST layer: ``_service_error_response`` looks exception types
+    up by *exact* identity, so every subclass MUST be registered in
+    ``rest_api.views_common._EXC_TO_HTTP``/``_EXC_TO_CODE`` or it degrades to
+    a 500.
+    """
+
+    #: Overridden by every concrete subclass; the empty default keeps an
+    #: accidental direct raise loud instead of silently claiming a gate code.
+    error_code: str = ""
+    http_status: int = 409
+    default_message: str = "The change impact gate refused this operation."
+
+    def __init__(
+        self,
+        message: str | None = None,
+        details: dict | None = None,
+    ) -> None:
+        resolved = message or self.default_message
+        super().__init__(resolved)
+        self.message = resolved
+        self.details = dict(details) if details else {}
+
+
+class ChangeImpactMissingError(ChangeImpactGateError):
+    """No completed analysis exists (``details.reason`` = ``never``/``failed``)."""
+
+    error_code = "CHANGE_IMPACT_MISSING"
+    http_status = 409
+    default_message = (
+        "No completed change-impact analysis exists for this change request. "
+        "Run the analysis before submitting it."
+    )
+
+
+class ChangeImpactStaleError(ChangeImpactGateError):
+    """The analysis predates a graph/policy/catalog change (``stale``)."""
+
+    error_code = "CHANGE_IMPACT_STALE"
+    http_status = 409
+    default_message = (
+        "The change-impact analysis is stale: the graph, the change set or the "
+        "policy changed after it ran. Re-run the analysis."
+    )
+
+
+class ChangeImpactOpenFindingsError(ChangeImpactGateError):
+    """Blocking findings are still open (``details`` names ids and count)."""
+
+    error_code = "CHANGE_IMPACT_OPEN_FINDINGS"
+    http_status = 409
+    default_message = (
+        "The change-impact analysis reports open blocking findings. Resolve "
+        "or waive them before submitting."
+    )
+
+
+class ChangeImpactIncompleteError(ChangeImpactGateError):
+    """The run is truncated or the summary is missing (``reason``)."""
+
+    error_code = "CHANGE_IMPACT_INCOMPLETE"
+    http_status = 409
+    default_message = (
+        "The change-impact analysis is incomplete: the change set is empty, "
+        "the run was truncated, or the impact summary is missing."
+    )
+
+
+class ChangeImpactRunningError(ChangeImpactGateError):
+    """A run is ``pending``/``running`` (``details`` names ``run_id``/status)."""
+
+    error_code = "CHANGE_IMPACT_RUNNING"
+    http_status = 409
+    default_message = (
+        "A change-impact analysis is still running for this change request. "
+        "Wait for it to finish before submitting."
+    )
+
+
+class ChangeImpactTimeoutError(ChangeImpactGateError):
+    """The run exceeded its time budget and was marked ``failed``."""
+
+    error_code = "CHANGE_IMPACT_TIMEOUT"
+    http_status = 409
+    default_message = (
+        "The change-impact analysis exceeded its time budget and was marked "
+        "failed. Run the analysis again."
+    )
+
+
+class ChangeImpactPolicyForbiddenError(ChangeImpactGateError):
+    """Call parameters exceed the policy ceiling (never clamped)."""
+
+    error_code = "CHANGE_IMPACT_POLICY_FORBIDDEN"
+    http_status = 400
+    default_message = (
+        "The requested change-impact parameters exceed the workspace policy."
+    )
+
+
+class ChangeImpactPolicyUnavailableError(ChangeImpactGateError):
+    """The preset/feature lookup could not resolve; the gate fails closed."""
+
+    error_code = "CHANGE_IMPACT_POLICY_UNAVAILABLE"
+    http_status = 409
+    default_message = (
+        "The structured change-impact feature could not be resolved for this "
+        "workspace; the gate stays closed."
+    )
+
+
+class ChangeSetFrozenError(ChangeImpactGateError):
+    """The change set is frozen from ``submitted`` onwards."""
+
+    error_code = "CHANGE_SET_FROZEN"
+    http_status = 409
+    default_message = (
+        "The change set is frozen after submission. Open a new change-request "
+        "revision to change its affected items."
+    )
+
+
+class ChangeImpactRateLimitedError(ChangeImpactGateError):
+    """The workspace/key day or minute budget for ``analyze_impact`` is spent."""
+
+    error_code = "CHANGE_IMPACT_RATE_LIMITED"
+    http_status = 429
+    default_message = (
+        "The change-impact analysis rate limit for this workspace or API key "
+        "is exhausted. Retry later."
+    )
+
+
 def is_producer_context(ctx: AuthContext) -> bool:
     """Return whether *ctx* is an authenticated, write-capable API-key producer.
 
@@ -831,6 +982,17 @@ class ServiceBase:
 
 __all__ = [
     "BaselineGateBlockedError",
+    "ChangeImpactGateError",
+    "ChangeImpactIncompleteError",
+    "ChangeImpactMissingError",
+    "ChangeImpactOpenFindingsError",
+    "ChangeImpactPolicyForbiddenError",
+    "ChangeImpactPolicyUnavailableError",
+    "ChangeImpactRateLimitedError",
+    "ChangeImpactRunningError",
+    "ChangeImpactStaleError",
+    "ChangeImpactTimeoutError",
+    "ChangeSetFrozenError",
     "DocumentGateFailedError",
     "FieldFrozenError",
     "LlmNotConfiguredError",
